@@ -22,7 +22,7 @@ using NinjaTrader.NinjaScript.DrawingTools;
 #endregion
 
 //This namespace holds Indicators in this folder and is required. Do not change it.
-namespace NinjaTrader.NinjaScript.Indicators
+namespace NinjaTrader.NinjaScript.Indicators.QuanTick
 {
 	public class CumulativeL2Delta : Indicator
 	{
@@ -130,25 +130,26 @@ namespace NinjaTrader.NinjaScript.Indicators
 	}
 }
 
+
 #region NinjaScript generated code. Neither change nor remove.
 
 namespace NinjaTrader.NinjaScript.Indicators
 {
 	public partial class Indicator : NinjaTrader.Gui.NinjaScript.IndicatorRenderBase
 	{
-		private CumulativeL2Delta[] cacheCumulativeL2Delta;
-		public CumulativeL2Delta CumulativeL2Delta()
+		private QuanTick.CumulativeL2Delta[] cacheCumulativeL2Delta;
+		public QuanTick.CumulativeL2Delta CumulativeL2Delta()
 		{
 			return CumulativeL2Delta(Input);
 		}
 
-		public CumulativeL2Delta CumulativeL2Delta(ISeries<double> input)
+		public QuanTick.CumulativeL2Delta CumulativeL2Delta(ISeries<double> input)
 		{
 			if (cacheCumulativeL2Delta != null)
 				for (int idx = 0; idx < cacheCumulativeL2Delta.Length; idx++)
 					if (cacheCumulativeL2Delta[idx] != null &&  cacheCumulativeL2Delta[idx].EqualsInput(input))
 						return cacheCumulativeL2Delta[idx];
-			return CacheIndicator<CumulativeL2Delta>(new CumulativeL2Delta(), input, ref cacheCumulativeL2Delta);
+			return CacheIndicator<QuanTick.CumulativeL2Delta>(new QuanTick.CumulativeL2Delta(), input, ref cacheCumulativeL2Delta);
 		}
 	}
 }
@@ -157,12 +158,12 @@ namespace NinjaTrader.NinjaScript.MarketAnalyzerColumns
 {
 	public partial class MarketAnalyzerColumn : MarketAnalyzerColumnBase
 	{
-		public Indicators.CumulativeL2Delta CumulativeL2Delta()
+		public Indicators.QuanTick.CumulativeL2Delta CumulativeL2Delta()
 		{
 			return indicator.CumulativeL2Delta(Input);
 		}
 
-		public Indicators.CumulativeL2Delta CumulativeL2Delta(ISeries<double> input )
+		public Indicators.QuanTick.CumulativeL2Delta CumulativeL2Delta(ISeries<double> input )
 		{
 			return indicator.CumulativeL2Delta(input);
 		}
@@ -173,12 +174,12 @@ namespace NinjaTrader.NinjaScript.Strategies
 {
 	public partial class Strategy : NinjaTrader.Gui.NinjaScript.StrategyRenderBase
 	{
-		public Indicators.CumulativeL2Delta CumulativeL2Delta()
+		public Indicators.QuanTick.CumulativeL2Delta CumulativeL2Delta()
 		{
 			return indicator.CumulativeL2Delta(Input);
 		}
 
-		public Indicators.CumulativeL2Delta CumulativeL2Delta(ISeries<double> input )
+		public Indicators.QuanTick.CumulativeL2Delta CumulativeL2Delta(ISeries<double> input )
 		{
 			return indicator.CumulativeL2Delta(input);
 		}
