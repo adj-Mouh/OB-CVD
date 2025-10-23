@@ -21,147 +21,112 @@ using NinjaTrader.Core.FloatingPoint;
 using NinjaTrader.NinjaScript.DrawingTools;
 #endregion
 
-//This namespace holds Indicators in this folder and is required. Do not change it. 
+//This namespace holds Indicators in this folder and is required. Do not change it.
 namespace NinjaTrader.NinjaScript.Indicators
 {
-	public class CumulativeBboDelta : Indicator
+	public class CumulativeL2Delta : Indicator
 	{
 		#region Variables
-		private List<DOMRow> askRows;
-		private List<DOMRow> bidRows;
-		
-		private long cumulativeDelta;
-		private long lastBestBidVol;
-		private long lastBestAskVol;
+		private double cumulativeDelta;
+		private long bestBidVolume;
+		private long bestAskVolume;
+		private object dataLock = new object(); // For thread safety
 		#endregion
-		
+
 		protected override void OnStateChange()
 		{
 			if (State == State.SetDefaults)
 			{
-				Description									= @"Calculates a cumulative delta based on the volume changes at the best bid and best ask prices.";
-				Name										= "Cumulative BBO Delta";
+				Description									= @"Calculates a cumulative delta of the best bid/ask volume, resetting each bar.";
+				Name										= "Cumulative L2 Delta";
 				Calculate									= Calculate.OnEachTick;
 				IsOverlay									= false;
 				DisplayInDataBox							= true;
-				DrawOnPricePanel							= true;
-				DrawHorizontalGridLines						= true;
-				DrawVerticalGridLines						= true;
+				DrawOnPricePanel							= false;
 				PaintPriceMarkers							= true;
 				ScaleJustification							= NinjaTrader.Gui.Chart.ScaleJustification.Right;
 				IsSuspendedWhileInactive					= true;
-				
+
 				// Add the plot for our cumulative delta line
-				AddPlot(new Stroke(Brushes.DodgerBlue, 2), PlotStyle.Line, "CumulativeDelta");
-				// Add a zero line for reference
-				AddLine(Brushes.Gray, 0, "ZeroLine");
+				AddPlot(new Stroke(Brushes.DodgerBlue, 2), PlotStyle.Line, "CumL2Delta");
 			}
 			else if (State == State.DataLoaded)
 			{
-				// Initialize lists and variables
-				askRows 		= new List<DOMRow>();
-				bidRows 		= new List<DOMRow>();
+				// Initialize variables
 				cumulativeDelta = 0;
-				lastBestBidVol 	= 0;
-				lastBestAskVol 	= 0;
+				bestBidVolume = 0;
+				bestAskVolume = 0;
 			}
 		}
-		
+
 		protected override void OnBarUpdate()
 		{
-			// On a new bar, carry over the last calculated delta value
-			// to prevent the line from dropping to zero until the next market depth update.
-			if (CurrentBar > 0)
+			// Detect the first tick of a new bar
+			if (IsFirstTickOfBar)
 			{
-				Value[0] = Value[1];
+				// Reset the cumulative delta value to 0 for the new bar
+				cumulativeDelta = 0;
+				
+				// Optional: You could also reset bestBidVolume and bestAskVolume here if you want
+				// a clean slate, but it's not strictly necessary as they'll be updated by OnMarketDepth.
+				// bestBidVolume = 0;
+				// bestAskVolume = 0;
 			}
+			
+			// Set the plot value for the current bar.
+			// This will update on every tick, showing the latest cumulative value.
+			Value[0] = cumulativeDelta;
 		}
 		
 		protected override void OnMarketDepth(MarketDepthEventArgs e)
 		{
-			// This method is called on every Level 2 order book change.
-			List<DOMRow> oneDOMRow = null;
-
-			// Determine if the update is for the Ask or Bid side
-			if (e.MarketDataType == MarketDataType.Ask)
-				oneDOMRow = askRows;
-			else if (e.MarketDataType == MarketDataType.Bid)
-				oneDOMRow = bidRows;
-			
-			if (oneDOMRow == null)
+			// We only care about changes to the very top of the book (best bid/ask)
+			if (e.Position != 0)
 				return;
-			
-			// Lock the list to ensure thread safety while modifying it
-			lock (oneDOMRow)
+				
+			// Lock to prevent race conditions when accessing shared variables from different threads
+			lock(dataLock)
 			{
-				if (e.Operation == Operation.Add)
-					oneDOMRow.Insert(e.Position, new DOMRow(e.Price, e.Volume));
+				bool topLevelChanged = false;
 				
-				else if (e.Operation == Operation.Remove && e.Position < oneDOMRow.Count)
-					oneDOMRow.RemoveAt(e.Position);
-				
-				else if (e.Operation == Operation.Update && e.Position < oneDOMRow.Count)
+				// Check if the best bid volume has changed
+				if (e.MarketDataType == MarketDataType.Bid)
 				{
-					oneDOMRow[e.Position].Price = e.Price;
-					oneDOMRow[e.Position].Volume = e.Volume;
+					if (bestBidVolume != e.Volume)
+					{
+						bestBidVolume = e.Volume;
+						topLevelChanged = true;
+					}
+				}
+				// Check if the best ask volume has changed
+				else if (e.MarketDataType == MarketDataType.Ask)
+				{
+					if (bestAskVolume != e.Volume)
+					{
+						bestAskVolume = e.Volume;
+						topLevelChanged = true;
+					}
+				}
+
+				// If a change occurred and we have valid data for both sides, perform the calculation
+				if (topLevelChanged && bestBidVolume > 0 && bestAskVolume > 0)
+				{
+					// Calculate the raw delta for this specific event
+					long rawDelta = bestBidVolume - bestAskVolume;
+					
+					// Add this raw delta to our cumulative total for the current bar
+					cumulativeDelta += rawDelta;
+					
+					// Update the plot value immediately
+					Value[0] = cumulativeDelta;
+					
+					// Force the chart to repaint to show the latest value instantly.
+					// This is needed because we are updating the plot from an event handler
+					// that is not OnBarUpdate().
+					ForceRefresh();
 				}
 			}
-
-			// --- Core Delta Calculation Logic ---
-			
-			long currentBestBidVol = 0;
-			long currentBestAskVol = 0;
-
-			// Safely get the current volume at the best bid (highest bid price)
-			lock(bidRows)
-			{
-				if (bidRows.Count > 0)
-					currentBestBidVol = bidRows[0].Volume;
-			}
-
-			// Safely get the current volume at the best ask (lowest ask price)
-			lock(askRows)
-			{
-				if (askRows.Count > 0)
-					currentBestAskVol = askRows[0].Volume;
-			}
-			
-			// If we don't have both sides of the book, we can't calculate a delta
-			if (currentBestBidVol == 0 || currentBestAskVol == 0)
-				return;
-			
-			// Calculate the change in volume since the last update
-			long bidChange = currentBestBidVol - lastBestBidVol;
-			long askChange = currentBestAskVol - lastBestAskVol;
-			
-			// Update cumulative delta based on the logic: (Sell Limit Volume) - (Buy Limit Volume)
-			// An increase in ask volume increases the delta.
-			// An increase in bid volume decreases the delta.
-			cumulativeDelta += (askChange - bidChange);
-			
-			// Store the current volumes for the next calculation
-			lastBestBidVol = currentBestBidVol;
-			lastBestAskVol = currentBestAskVol;
-
-			// Set the plot value and force the chart to redraw
-			Value[0] = cumulativeDelta;
-			ForceRefresh();
 		}
-		
-		#region Helper Class
-		// A simple class to hold Price and Volume for a single row in the order book
-		private class DOMRow
-		{
-			public double Price;
-			public long Volume;
-
-			public DOMRow(double myPrice, long myVolume)
-			{
-				Price = myPrice;
-				Volume = myVolume;
-			}
-		}
-		#endregion
 	}
 }
 
@@ -171,19 +136,19 @@ namespace NinjaTrader.NinjaScript.Indicators
 {
 	public partial class Indicator : NinjaTrader.Gui.NinjaScript.IndicatorRenderBase
 	{
-		private CumulativeBboDelta[] cacheCumulativeBboDelta;
-		public CumulativeBboDelta CumulativeBboDelta()
+		private CumulativeL2Delta[] cacheCumulativeL2Delta;
+		public CumulativeL2Delta CumulativeL2Delta()
 		{
-			return CumulativeBboDelta(Input);
+			return CumulativeL2Delta(Input);
 		}
 
-		public CumulativeBboDelta CumulativeBboDelta(ISeries<double> input)
+		public CumulativeL2Delta CumulativeL2Delta(ISeries<double> input)
 		{
-			if (cacheCumulativeBboDelta != null)
-				for (int idx = 0; idx < cacheCumulativeBboDelta.Length; idx++)
-					if (cacheCumulativeBboDelta[idx] != null &&  cacheCumulativeBboDelta[idx].EqualsInput(input))
-						return cacheCumulativeBboDelta[idx];
-			return CacheIndicator<CumulativeBboDelta>(new CumulativeBboDelta(), input, ref cacheCumulativeBboDelta);
+			if (cacheCumulativeL2Delta != null)
+				for (int idx = 0; idx < cacheCumulativeL2Delta.Length; idx++)
+					if (cacheCumulativeL2Delta[idx] != null &&  cacheCumulativeL2Delta[idx].EqualsInput(input))
+						return cacheCumulativeL2Delta[idx];
+			return CacheIndicator<CumulativeL2Delta>(new CumulativeL2Delta(), input, ref cacheCumulativeL2Delta);
 		}
 	}
 }
@@ -192,14 +157,14 @@ namespace NinjaTrader.NinjaScript.MarketAnalyzerColumns
 {
 	public partial class MarketAnalyzerColumn : MarketAnalyzerColumnBase
 	{
-		public Indicators.CumulativeBboDelta CumulativeBboDelta()
+		public Indicators.CumulativeL2Delta CumulativeL2Delta()
 		{
-			return indicator.CumulativeBboDelta(Input);
+			return indicator.CumulativeL2Delta(Input);
 		}
 
-		public Indicators.CumulativeBboDelta CumulativeBboDelta(ISeries<double> input )
+		public Indicators.CumulativeL2Delta CumulativeL2Delta(ISeries<double> input )
 		{
-			return indicator.CumulativeBboDelta(input);
+			return indicator.CumulativeL2Delta(input);
 		}
 	}
 }
@@ -208,14 +173,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 {
 	public partial class Strategy : NinjaTrader.Gui.NinjaScript.StrategyRenderBase
 	{
-		public Indicators.CumulativeBboDelta CumulativeBboDelta()
+		public Indicators.CumulativeL2Delta CumulativeL2Delta()
 		{
-			return indicator.CumulativeBboDelta(Input);
+			return indicator.CumulativeL2Delta(Input);
 		}
 
-		public Indicators.CumulativeBboDelta CumulativeBboDelta(ISeries<double> input )
+		public Indicators.CumulativeL2Delta CumulativeL2Delta(ISeries<double> input )
 		{
-			return indicator.CumulativeBboDelta(input);
+			return indicator.CumulativeL2Delta(input);
 		}
 	}
 }
